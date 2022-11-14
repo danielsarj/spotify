@@ -1,0 +1,140 @@
+---
+title: "Analyzing Spotify Extended Streaming History"
+author: "Daniel Araujo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Introduction
+
+Hello. I was told by a friend that Spotify is able to send you an extended streaming history, and as someone who's excited about data science, I quickly requested my data. My idea with this script is to slowly write code over time, as I have spare time, to analyze the data. Additionally, I plan on peridiocally request the data to see how they change over time.
+
+In case you'd like to try it for yourself, feel free to request your own extended streaming data and copy any chunks of code I wrote. I'm not the most knowledgeable person in R ever, so some code might not be the most efficient. 
+
+## Reading in file
+
+The data is in a .json file, split into many subfiles with the same prefix. So, first I read the files and merged them into a single data frame.
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+library(viridis)
+'%&%' = function(a,b) paste (a,b,sep='')
+
+# list of subfiles to read
+list_of_json_files <- list.files(path = 'MyData/', pattern = 'endsong')
+
+# read each file and append to a merged data frame
+for (f in list_of_json_files){
+  tmp <- fromJSON(txt = 'MyData/' %&% f)
+  if (exists('full_df')){
+    full_df <- rbind(full_df, tmp)
+  } else { full_df <- tmp }
+}
+
+# only keep columns I want
+full_df <- full_df %>% select(ts, ms_played, master_metadata_track_name, 
+                        master_metadata_album_artist_name, 
+                        master_metadata_album_album_name)
+full_df$ms_played <- full_df$ms_played %>% as.numeric()
+full_df <- full_df %>% drop_na()
+head(full_df)
+```
+
+
+## Modifying timestamp column
+
+The timestamp column (ts) is formatted in the following way: date as YYYY-MM-DD, followed by the time in HH:MM:SS in GMT. However, I want to compare my data across different years/months, so I gotta extract that information from the TS column. 
+
+```{r}
+# split timestamp column into multiple
+full_df <- full_df %>% separate(col = ts, into = c('year','month','day'), sep = '-')
+full_df <- full_df %>% separate(col = day, into = c('day','hour'), sep = 'T')
+full_df <- full_df %>% separate(col = hour, into = c('hour','minutes', 'seconds'), sep = ':')
+full_df <- full_df %>% select(ms_played, master_metadata_track_name, 
+                        master_metadata_album_artist_name,
+                        master_metadata_album_album_name,
+                        year, month, day, hour)
+full_df$year <- full_df$year %>% as.numeric()
+full_df$month <- full_df$month %>% as.numeric()
+full_df$day <- full_df$day %>% as.numeric()
+full_df$hour <- full_df$hour %>% as.numeric()
+head(full_df)
+```
+
+
+## Skipped songs 
+
+The original data contains a 'skipped' column, however Spotify doesn't explain well what the values inside that column mean, and most cells were empty. So, I decided to implement my own 'Did I skip this song?' algorithm, which is: if I listened to a song for less than 5 seconds, it's considered as skipped. 
+
+```{r}
+# remove songs that I listened to less than 5 seconds
+songs_skipped <- full_df %>% filter(ms_played <= 4999)
+
+# see how the dataframe looks like
+head(songs_skipped)
+
+# analyze how much I skipped songs
+songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
+  master_metadata_album_artist_name) %>% summarise(times_skipped = n()) %>% 
+  unique()
+ggplot(songs_skipped_sum, aes(x=times_skipped)) + geom_histogram() + 
+  xlab('Number of times I skipped a song') + ylab('Count') + 
+  ggtitle('How many times I skip songs')
+```
+
+As we can see, most songs I skip few times. Those are probably songs Spotify recommended to me once or twice, and I skipped. However, there are songs I skipped a lot! Those are songs I most likely enjoy, but sometimes I'm not in the mood to listen to them. Let's see the top 10 most skipped songs of all time:
+
+```{r}
+# 10 most skipped songs of all time
+songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
+  master_metadata_album_artist_name) %>% summarise(times_skipped = n()) %>% 
+  unique()
+top10songs_skipped <- songs_skipped_sum %>% arrange(desc(times_skipped)) 
+head(top10songs_skipped, n = 10)
+```
+
+Bingo! Those are songs I definitely enjoy, but sometimes I just don't wanna listen to them. 
+
+Now, let's see the same data, but this time split across the years. 
+
+```{r}
+# analyze how much I skipped songs over the years
+songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
+  master_metadata_album_artist_name, year) %>% summarise(times_skipped = n()) %>% 
+  unique()
+songs_skipped_sum$year <- songs_skipped_sum$year %>% as.character()
+ggplot(songs_skipped_sum, aes(x=times_skipped, fill=year)) + geom_histogram(position = 'dodge') + 
+  xlab('Number of times I skipped a song') + ylab('Count') + 
+  ggtitle('How many times I skip songs, per year') + scale_fill_viridis_d()
+```
+
+If we analyze it by year, the trend is the same. Most songs were skipped once or twice. Also, we can definitely see that I used Spotify during a very brief time in 2015, and didn't ever use it during 2016 and 2017! During this time I used to listen to music using iTunes, so that checks out. 
+
+Let's see the top 10 songs skipped, per year.
+
+```{r}
+# 10 most skipped songs per year
+songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
+  master_metadata_album_artist_name, year) %>% summarise(times_skipped = n()) %>% 
+  unique()
+top10songs_skipped <- songs_skipped_sum %>% arrange(desc(times_skipped)) %>% group_by(year) %>%
+  slice(1:10)
+top10songs_skipped %>% arrange(desc(times_skipped)) %>% print(n = 1e3)
+```
+
+Once again, this confirms how I pretty much didn't use Spotify in 2015, as my top skipped songs were skipped once or twice.  
+
+
+
+
+## RSession
+
+```{r}
+sessionInfo()
+```
+
