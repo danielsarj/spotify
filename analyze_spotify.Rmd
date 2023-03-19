@@ -2,7 +2,10 @@
 title: "Analyzing Spotify Extended Streaming History"
 author: "Daniel Araujo"
 date: "`r Sys.Date()`"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
@@ -11,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 ## Introduction
 
-Hello. I was told by a friend that Spotify is able to send you an extended streaming history, and as someone who's excited about data science, I quickly requested my data. My idea with this script is to slowly write code over time, as I have spare time, to analyze the data. Additionally, I plan on peridiocally request the data to see how they change over time.
+Hello. I discovered that Spotify is able to send you an extended streaming history, and because I'm excited about data science, of course I had to do it. My idea with this script is to slowly write code over time, as I have spare time, to analyze the data. Additionally, I plan on periodically request the data to see how they change over time.
 
 In case you'd like to try it for yourself, feel free to request your own extended streaming data and copy any chunks of code I wrote. I'm not the most knowledgeable person in R ever, so some code might not be the most efficient. 
 
@@ -42,7 +45,6 @@ full_df <- full_df %>% select(ts, ms_played, master_metadata_track_name,
                         master_metadata_album_album_name)
 full_df$ms_played <- full_df$ms_played %>% as.numeric()
 full_df <- full_df %>% drop_na()
-head(full_df)
 ```
 
 
@@ -63,7 +65,6 @@ full_df$year <- full_df$year %>% as.numeric()
 full_df$month <- full_df$month %>% as.numeric()
 full_df$day <- full_df$day %>% as.numeric()
 full_df$hour <- full_df$hour %>% as.numeric()
-head(full_df)
 ```
 
 
@@ -72,11 +73,8 @@ head(full_df)
 The original data contains a 'skipped' column, however Spotify doesn't explain well what the values inside that column mean, and most cells were empty. So, I decided to implement my own 'Did I skip this song?' algorithm, which is: if I listened to a song for less than 5 seconds, it's considered as skipped. 
 
 ```{r}
-# remove songs that I listened to less than 5 seconds
+# keeps songs that I listened to for less than 5 seconds
 songs_skipped <- full_df %>% filter(ms_played <= 4999)
-
-# see how the dataframe looks like
-head(songs_skipped)
 
 # analyze how much I skipped songs
 songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
@@ -129,8 +127,57 @@ top10songs_skipped %>% arrange(desc(times_skipped)) %>% print(n = 1e3)
 
 Once again, this confirms how I pretty much didn't use Spotify in 2015, as my top skipped songs were skipped once or twice.  
 
+## Most listened songs ever 
 
+OK, so now that I was able to briefly analyze the data corresponding to my skipped songs, let's take a look at the ones I actually listened to. First, let's see the ones I listened to the most throughout all my time as a Spotify user. For this, I'll compute the top 100 most listened to songs of all time. 
 
+```{r}
+# keeps songs that I listened to for more than 5 seconds
+songs_listened <- full_df %>% filter(ms_played > 5000)
+
+# 100 most listened songs of all time
+songs_listened_sum <- songs_listened %>% group_by(master_metadata_track_name,
+  master_metadata_album_artist_name) %>% summarise(times_listened = n()) %>% 
+  unique()
+songs_listened_sum <- songs_listened_sum %>% arrange(desc(times_listened)) 
+print(songs_listened_sum, n = 100)
+```
+
+I feel like any comment about my top 100 list would be TMI. It is what it is.
+
+Now, let's see the top 10 songs per year. 
+
+```{r}
+# 10 most listened to songs per year
+songs_listened_sum <- songs_listened %>% group_by(master_metadata_track_name,
+  master_metadata_album_artist_name, year) %>% summarise(times_listened = n()) %>% 
+  unique()
+top10songs_listened <- songs_listened_sum %>% arrange(desc(times_listened)) %>% group_by(year) %>%
+  slice(1:10)
+top10songs_listened %>% arrange(desc(times_listened)) %>% print(n = 1e3)
+```
+
+It's weird seeing my top 10 songs of each year, because I definitely see how it changes over the years. And it also surprised me, as I wasn't expecting some of those songs to make top 10. 
+
+## Time spent listening to music
+
+I wonder how many hours per year I spent listening to music. This seems easy to do.
+
+```{r}
+# make a 'hours_played' column based on the 'ms_played' column
+# 1 millisecond = 2.7777777777778E-7 hours
+songs_listened <- songs_listened %>% mutate(hours_played = ms_played * 2.7777777777778E-7)
+
+# for every year, sum the hours_played column
+time_spent_w_songs <- songs_listened %>% group_by(year) %>% summarise(hours_listened=sum(hours_played))
+
+# let's plot it!
+ggplot(time_spent_w_songs, aes(y=hours_listened, x=year)) + geom_col() + 
+  xlab('Year') + ylab('Hours') + 
+  ggtitle('Hours spent listening to music')
+```
+
+So many hours listening to music in 2020 - almost 84 days. I blame COVID-19. 
 
 ## RSession
 
