@@ -1,7 +1,7 @@
 ---
 title: "Analyzing Spotify Extended Streaming History"
 author: "Daniel Araujo"
-date: "`r Sys.Date()`"
+date: "Date of data request: October 4th, 2022"
 output: 
   html_document:
     toc: true
@@ -14,9 +14,9 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 ## Introduction
 
-Hello. I discovered that Spotify is able to send you an extended streaming history, and because I'm excited about data science, of course I had to do it. My idea with this script is to slowly write code over time, as I have spare time, to analyze the data. Additionally, I plan on periodically request the data to see how they change over time.
+Hello. I discovered that Spotify is able to send you an extended streaming history, and since I'm excited about data science, of course I had to do it. My idea with this script is to slowly write code over time, as I have spare time, to analyze the data. Additionally, I plan on periodically request the data to see how they change over time.
 
-In case you'd like to try it for yourself, feel free to request your own extended streaming data and copy any chunks of code I wrote. I'm not the most knowledgeable person in R ever, so some code might not be the most efficient. 
+In case you'd like to try it for yourself, feel free to request your own extended streaming data and copy any chunks of code I wrote. I'm not the most knowledgeable person in R ever, so some code might not be the most efficient - and I'm definitely not trying to code the most efficient way in here. It's just supposed to be fun. Don't judge my code! I swear I'm a better coder than this page shows. 
 
 ## Reading in file
 
@@ -26,6 +26,7 @@ The data is in a .json file, split into many subfiles with the same prefix. So, 
 library(jsonlite)
 library(tidyverse)
 library(viridis)
+library(treemapify)
 '%&%' = function(a,b) paste (a,b,sep='')
 
 # list of subfiles to read
@@ -148,16 +149,76 @@ I feel like any comment about my top 100 list would be TMI. It is what it is.
 Now, let's see the top 10 songs per year. 
 
 ```{r}
-# 10 most listened to songs per year
+# add amount of times I've listened to each song per year
 songs_listened_sum <- songs_listened %>% group_by(master_metadata_track_name,
   master_metadata_album_artist_name, year) %>% summarise(times_listened = n()) %>% 
   unique()
-top10songs_listened <- songs_listened_sum %>% arrange(desc(times_listened)) %>% group_by(year) %>%
+
+# get top 10 per year
+top10songs_listened <- songs_listened_sum %>% group_by(year) %>% arrange(desc(times_listened)) %>% 
   slice(1:10)
+
 top10songs_listened %>% arrange(desc(times_listened)) %>% print(n = 1e3)
 ```
 
 It's weird seeing my top 10 songs of each year, because I definitely see how it changes over the years. And it also surprised me, as I wasn't expecting some of those songs to make top 10. 
+
+## Favorite artists
+
+Now, what are the artists I listen to the most? 
+
+```{r}
+# get the total amount of times I've listened to all artists
+artists_frequency <- songs_listened %>% group_by(master_metadata_album_artist_name) %>% 
+  summarise(times_listened = n()) %>% 
+  arrange(desc(times_listened))
+
+artists_frequency %>% arrange(desc(times_listened)) %>% print(n = 100)
+```
+
+Am I surprised Lana Del Rey is in the first place? No. Am I shocked by the difference between her and the second place? A bit.
+
+Now, I wanna see my top 10 using a treemap. The number inside the boxes correspond to the amount of songs from that artist I have listened to.
+
+```{r}
+# get top 10
+artists_frequency <- artists_frequency %>% arrange(desc(times_listened)) %>% slice(1:10)
+
+ggplot(artists_frequency, aes(area=times_listened,fill=master_metadata_album_artist_name,label=master_metadata_album_artist_name,subgroup=times_listened)) +
+  labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_text() + scale_fill_viridis_d() + theme(legend.position='none')
+```
+
+## Favorite artists by each year
+
+Let's do the same thing, but do top 10 per year. 
+
+```{r}
+# get the total amount of times I've listened to all artists per year
+artists_frequency <- songs_listened %>% group_by(master_metadata_album_artist_name, year) %>% 
+  summarise(times_listened = n()) %>% 
+  arrange(desc(times_listened))
+  
+# get top 10 per year
+top10artists_year <- artists_frequency %>% group_by(year) %>% slice(1:10)
+
+top10artists_year %>% arrange(desc(times_listened)) %>% print(n = nrow(top10artists_year))
+```
+
+I don't know if the breakdown per year has as much information as the previous one, but just out of curiosity I'd like to know what artists are found within my top 10 across all years. I'll also remove years 2015-2017 because they don't really mean anything, as I barely used Spotify back them. Additionally, not only I want to know what artists are in my top 10, but I also want to know how many times they've been in a top 10 (which I'll show using the gray numbers inside the treemap).
+
+```{r}
+# remove years 2015-2017
+top10artists_year <- top10artists_year %>% filter(year>2017) 
+top10artists_year <- top10artists_year[,1]
+
+# count times an artist appears in a top 10
+top10artists_year_unq <- top10artists_year %>% group_by(master_metadata_album_artist_name) %>% summarise(times_in_top10=n())
+
+ggplot(top10artists_year_unq, aes(area=times_in_top10,fill=master_metadata_album_artist_name,label=master_metadata_album_artist_name,subgroup=times_in_top10)) +
+  labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_border() + geom_treemap_subgroup_text(place='centre',grow=T,alpha=0.5) + scale_fill_viridis_d() + theme(legend.position='none')
+```
+
+Lana Del Rey is the only artist that has appeared in a top 10 every year. No surprises there. 
 
 ## Time spent listening to music
 
