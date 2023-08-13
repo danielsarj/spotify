@@ -1,7 +1,7 @@
 ---
 title: "Analyzing Spotify Extended Streaming History"
 author: "Daniel Araujo"
-date: "Date of data request: October 4th, 2022"
+date: "Date of data request: August 8th, 2023"
 output: 
   html_document:
     toc: true
@@ -14,13 +14,15 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 ## Introduction
 
-Hello. I discovered that Spotify is able to send you an extended streaming history, and since I'm excited about data science, of course I had to do it. My idea with this script is to slowly write code over time, as I have spare time, to analyze the data. Additionally, I plan on periodically request the data to see how they change over time.
+I learned that, if requested, Spotify sends users their extended streaming history data. Since I'm excited about data science, of course I had to do it. My idea with this script is to slowly write code over time, as I have spare time, to analyze my data. Additionally, I plan on periodically request my streaming data.
 
-In case you'd like to try it for yourself, feel free to request your own extended streaming data and copy any chunks of code I wrote. I'm not the most knowledgeable person in R ever, so some code might not be the most efficient - and I'm definitely not trying to code the most efficient way in here. It's just supposed to be fun. Don't judge my code! I swear I'm a better coder than this page shows. 
+In case you'd like to try it for yourself, feel free to request your own extended streaming data and copy any chunks of code I wrote. As a disclaimer, I'm not trying to code the most efficient way in here. It's just supposed to be fun. Don't judge my code! 
 
-## Reading in file
+---
 
-The data is in a .json file, split into many subfiles with the same prefix. So, first I read the files and merged them into a single data frame.
+## 1. Reading input files
+
+The data are in multiple *.json* files with the same prefix. So, first I read the files and merged them into a single data frame, and then removed unnecessary columns. 
 
 ```{r}
 library(jsonlite)
@@ -30,118 +32,72 @@ library(treemapify)
 '%&%' = function(a,b) paste (a,b,sep='')
 
 # list of subfiles to read
-list_of_json_files <- list.files(path = 'MyData/', pattern = 'endsong')
+list_of_json_files <- list.files(path = 'MyData/', pattern = 'Streaming_History_Audio')
 
 # read each file and append to a merged data frame
 for (f in list_of_json_files){
   tmp <- fromJSON(txt = 'MyData/' %&% f)
   if (exists('full_df')){
     full_df <- rbind(full_df, tmp)
+    rm(tmp)
   } else { full_df <- tmp }
 }
 
 # only keep columns I want
-full_df <- full_df %>% select(ts, ms_played, master_metadata_track_name, 
-                        master_metadata_album_artist_name, 
-                        master_metadata_album_album_name)
-full_df$ms_played <- full_df$ms_played %>% as.numeric()
-full_df <- full_df %>% drop_na()
+full_df <- full_df %>% select(master_metadata_album_artist_name, master_metadata_track_name, ts, ms_played) %>% drop_na()
+
+# make sure the timestamp column is in the correct format
+full_df$ts <- as_datetime(full_df$ts)
+
+# renaming first two columns (names are too big!)
+colnames(full_df)[1:2] <- c('artist_name','track_name')
 ```
 
+---
 
-## Modifying timestamp column
+## 2. Skipped songs 
 
-The timestamp column (ts) is formatted in the following way: date as YYYY-MM-DD, followed by the time in HH:MM:SS in GMT. However, I want to compare my data across different years/months, so I gotta extract that information from the TS column. 
+The original data contains a 'skipped' column with Boolean values, however most cells were empty. Thus, I decided to implement my own 'Did I skip this song?' algorithm, which basically is: if I listened to a song for less than 10 seconds, it's considered as skipped. 
 
 ```{r}
-# split timestamp column into multiple
-full_df <- full_df %>% separate(col = ts, into = c('year','month','day'), sep = '-')
-full_df <- full_df %>% separate(col = day, into = c('day','hour'), sep = 'T')
-full_df <- full_df %>% separate(col = hour, into = c('hour','minutes', 'seconds'), sep = ':')
-full_df <- full_df %>% select(ms_played, master_metadata_track_name, 
-                        master_metadata_album_artist_name,
-                        master_metadata_album_album_name,
-                        year, month, day, hour)
-full_df$year <- full_df$year %>% as.numeric()
-full_df$month <- full_df$month %>% as.numeric()
-full_df$day <- full_df$day %>% as.numeric()
-full_df$hour <- full_df$hour %>% as.numeric()
+# keeps songs that I listened to for less than 10 seconds
+songs_skipped <- full_df %>% filter(ms_played <= 9999)
+
+# analyze how much I've skipped songs
+songs_skipped_summary <- songs_skipped %>% group_by(track_name, artist_name) %>% 
+  summarise(times_skipped = n()) %>% unique()
+
+# plot a histogram
+ggplot(songs_skipped_summary, aes(x=times_skipped)) + geom_histogram() + 
+  xlab('Number of times I have skipped a song') + ylab('Count') + 
+  ggtitle('How many times I have skipped songs') + theme_minimal()
 ```
 
-
-## Skipped songs 
-
-The original data contains a 'skipped' column, however Spotify doesn't explain well what the values inside that column mean, and most cells were empty. So, I decided to implement my own 'Did I skip this song?' algorithm, which is: if I listened to a song for less than 5 seconds, it's considered as skipped. 
-
-```{r}
-# keeps songs that I listened to for less than 5 seconds
-songs_skipped <- full_df %>% filter(ms_played <= 4999)
-
-# analyze how much I skipped songs
-songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
-  master_metadata_album_artist_name) %>% summarise(times_skipped = n()) %>% 
-  unique()
-ggplot(songs_skipped_sum, aes(x=times_skipped)) + geom_histogram() + 
-  xlab('Number of times I skipped a song') + ylab('Count') + 
-  ggtitle('How many times I skip songs')
-```
-
-As we can see, most songs I skip few times. Those are probably songs Spotify recommended to me once or twice, and I skipped. However, there are songs I skipped a lot! Those are songs I most likely enjoy, but sometimes I'm not in the mood to listen to them. Let's see the top 10 most skipped songs of all time:
+As we can see, most songs I have skipped few times. Those are probably songs Spotify recommended to me once or twice, and I skipped them. However, there are songs I have skipped a lot! Let's see the top 10 most skipped songs of all time:
 
 ```{r}
 # 10 most skipped songs of all time
-songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
-  master_metadata_album_artist_name) %>% summarise(times_skipped = n()) %>% 
-  unique()
-top10songs_skipped <- songs_skipped_sum %>% arrange(desc(times_skipped)) 
-head(top10songs_skipped, n = 10)
+songs_skipped_summary %>% arrange(desc(times_skipped)) %>% head(n=10)
 ```
 
 Bingo! Those are songs I definitely enjoy, but sometimes I just don't wanna listen to them. 
 
-Now, let's see the same data, but this time split across the years. 
+---
+
+## 3. Most streamed songs 
+
+OK, so now that I was able to briefly analyze the data corresponding to my skipped songs, let's take a look at the ones I actually listened to. First, let's see my top 100 most streamed songs of all my time as a Spotify user.  
 
 ```{r}
-# analyze how much I skipped songs over the years
-songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
-  master_metadata_album_artist_name, year) %>% summarise(times_skipped = n()) %>% 
-  unique()
-songs_skipped_sum$year <- songs_skipped_sum$year %>% as.character()
-ggplot(songs_skipped_sum, aes(x=times_skipped, fill=year)) + geom_histogram(position = 'dodge') + 
-  xlab('Number of times I skipped a song') + ylab('Count') + 
-  ggtitle('How many times I skip songs, per year') + scale_fill_viridis_d()
-```
+# keeps songs that I listened to for at least 10 seconds
+songs_listened <- full_df %>% filter(ms_played >= 10000)
 
-If we analyze it by year, the trend is the same. Most songs were skipped once or twice. Also, we can definitely see that I used Spotify during a very brief time in 2015, and didn't ever use it during 2016 and 2017! During this time I used to listen to music using iTunes, so that checks out. 
+# analyze how much I've streamed songs
+songs_listened_summary <- songs_listened %>% group_by(track_name, artist_name) %>% 
+  summarise(times_streamed = n()) %>% unique()
 
-Let's see the top 10 songs skipped, per year.
-
-```{r}
-# 10 most skipped songs per year
-songs_skipped_sum <- songs_skipped %>% group_by(master_metadata_track_name,
-  master_metadata_album_artist_name, year) %>% summarise(times_skipped = n()) %>% 
-  unique()
-top10songs_skipped <- songs_skipped_sum %>% arrange(desc(times_skipped)) %>% group_by(year) %>%
-  slice(1:10)
-top10songs_skipped %>% arrange(desc(times_skipped)) %>% print(n = 1e3)
-```
-
-Once again, this confirms how I pretty much didn't use Spotify in 2015, as my top skipped songs were skipped once or twice.  
-
-## Most listened songs ever 
-
-OK, so now that I was able to briefly analyze the data corresponding to my skipped songs, let's take a look at the ones I actually listened to. First, let's see the ones I listened to the most throughout all my time as a Spotify user. For this, I'll compute the top 100 most listened to songs of all time. 
-
-```{r}
-# keeps songs that I listened to for more than 5 seconds
-songs_listened <- full_df %>% filter(ms_played > 5000)
-
-# 100 most listened songs of all time
-songs_listened_sum <- songs_listened %>% group_by(master_metadata_track_name,
-  master_metadata_album_artist_name) %>% summarise(times_listened = n()) %>% 
-  unique()
-songs_listened_sum <- songs_listened_sum %>% arrange(desc(times_listened)) 
-print(songs_listened_sum, n = 100)
+# 100 most streamed songs of all time
+songs_listened_summary %>% arrange(desc(times_streamed)) %>% print(n=100)
 ```
 
 I feel like any comment about my top 100 list would be TMI. It is what it is.
@@ -149,96 +105,145 @@ I feel like any comment about my top 100 list would be TMI. It is what it is.
 Now, let's see the top 10 songs per year. 
 
 ```{r}
-# add amount of times I've listened to each song per year
-songs_listened_sum <- songs_listened %>% group_by(master_metadata_track_name,
-  master_metadata_album_artist_name, year) %>% summarise(times_listened = n()) %>% 
-  unique()
+# sum amount of times I've streamed each song per year
+songs_listened_summary <- songs_listened %>% group_by(track_name, artist_name, year(ts)) %>% 
+  summarise(times_streamed = n()) %>% unique()
+
+# rename "year(ts)" column
+colnames(songs_listened_summary)[3] <- c('year')
 
 # get top 10 per year
-top10songs_listened <- songs_listened_sum %>% group_by(year) %>% arrange(desc(times_listened)) %>% 
+top10songs_listened <- songs_listened_summary %>% group_by(year) %>% arrange(desc(times_streamed)) %>% 
   slice(1:10)
 
-top10songs_listened %>% arrange(desc(times_listened)) %>% print(n = 1e3)
+# print full data frame
+top10songs_listened %>% arrange(desc(times_streamed)) %>% print(n=nrow(top10songs_listened))
 ```
 
-It's weird seeing my top 10 songs of each year, because I definitely see how it changes over the years. And it also surprised me, as I wasn't expecting some of those songs to make top 10. 
-
-## Favorite artists
-
-Now, what are the artists I listen to the most? 
+It is interesting to see my top 10 songs of each year, because I definitely see how it changes over the years. It is also possible to notice that I basically did not use Spotify between 2015-2017, so I will make sure to remove those years from my data frame. 
 
 ```{r}
-# get the total amount of times I've listened to all artists
-artists_frequency <- songs_listened %>% group_by(master_metadata_album_artist_name) %>% 
-  summarise(times_listened = n()) %>% 
-  arrange(desc(times_listened))
-
-artists_frequency %>% arrange(desc(times_listened)) %>% print(n = 100)
+# only keep streams that occurred in 2018 or after
+songs_listened <- songs_listened %>% filter(year(ts)>2017)
 ```
 
-Am I surprised Lana Del Rey is in the first place? No. Am I shocked by the difference between her and the second place? A bit.
+---
 
-Now, I wanna see my top 10 using a treemap. The number inside the boxes correspond to the amount of songs from that artist I have listened to.
+## 4. Favorite artists
+
+Now, what are the artists I listen to the most? I have my own guesses, but let's see what the data tell us. 
 
 ```{r}
-# get top 10
-artists_frequency <- artists_frequency %>% arrange(desc(times_listened)) %>% slice(1:10)
+# get the total amount of times I've listened to each artist
+artists_frequency <- songs_listened %>% group_by(artist_name) %>% 
+  summarise(times_listened = n())
 
-ggplot(artists_frequency, aes(area=times_listened,fill=master_metadata_album_artist_name,label=master_metadata_album_artist_name,subgroup=times_listened)) +
-  labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_text() + scale_fill_viridis_d() + theme(legend.position='none')
+# print the top 100
+artists_frequency %>% arrange(desc(times_listened)) %>% print(n=100)
 ```
 
-## Favorite artists by each year
+Am I surprised Lana Del Rey is in the first place? No. Am I shocked by the difference between her and the second place? A bit. But overall, the top 100 fairly represents my musical taste (duh!). 
 
-Let's do the same thing, but do top 10 per year. 
+Let's do top 10 per year now. 
 
 ```{r}
-# get the total amount of times I've listened to all artists per year
-artists_frequency <- songs_listened %>% group_by(master_metadata_album_artist_name, year) %>% 
-  summarise(times_listened = n()) %>% 
-  arrange(desc(times_listened))
-  
+# get the total amount of times I've listened to each artist per year
+artists_frequency <- songs_listened %>% group_by(artist_name, year(ts)) %>% 
+  summarise(times_listened = n())
+
+# rename "year(ts)" column
+colnames(artists_frequency)[2] <- c('year')
+
 # get top 10 per year
-top10artists_year <- artists_frequency %>% group_by(year) %>% slice(1:10)
+top10artists_listened <- artists_frequency %>% group_by(year) %>% arrange(desc(times_listened)) %>% 
+  slice(1:10)
 
-top10artists_year %>% arrange(desc(times_listened)) %>% print(n = nrow(top10artists_year))
+# print full data frame
+top10artists_listened %>% arrange(desc(times_listened)) %>% print(n=nrow(top10artists_listened))
 ```
 
-I don't know if the breakdown per year has as much information as the previous one, but just out of curiosity I'd like to know what artists are found within my top 10 across all years. I'll also remove years 2015-2017 because they don't really mean anything, as I barely used Spotify back them. Additionally, not only I want to know what artists are in my top 10, but I also want to know how many times they've been in a top 10 (which I'll show using the gray numbers inside the treemap).
+I feel like the breakdown per year does not have as much information as the previous one, but it is possible to see how in some years I was more into certain music genres than others. 
+
+Just out of curiosity, I would like to know how often the same artists are found within my top 10 across all years. 
 
 ```{r}
-# remove years 2015-2017
-top10artists_year <- top10artists_year %>% filter(year>2017) 
-top10artists_year <- top10artists_year[,1]
+# count how many times an artist appears in a top 10
+top10artists_frequency <- top10artists_listened %>% group_by(artist_name) %>% summarise(times_in_top10=n())
 
-# count times an artist appears in a top 10
-top10artists_year_unq <- top10artists_year %>% group_by(master_metadata_album_artist_name) %>% summarise(times_in_top10=n())
-
-ggplot(top10artists_year_unq, aes(area=times_in_top10,fill=master_metadata_album_artist_name,label=master_metadata_album_artist_name,subgroup=times_in_top10)) +
-  labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_border() + geom_treemap_subgroup_text(place='centre',grow=T,alpha=0.5) + scale_fill_viridis_d() + theme(legend.position='none')
+# make a treemap
+ggplot(top10artists_frequency, aes(area=times_in_top10, fill=times_in_top10, label=artist_name, subgroup=times_in_top10)) +
+  labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_border(color='black') + geom_treemap_subgroup_text(place='centre', grow=T, alpha=0.6) + theme(legend.position='none') + scale_fill_viridis()
 ```
 
-Lana Del Rey is the only artist that has appeared in a top 10 every year. No surprises there. 
+In the treemap above, gray numbers represent how many times the artists in each subgroup (same color) are found in a top 10. Lana Del Rey is the only artist that has appeared in a top 10 every year. No surprises there. 
 
-## Time spent listening to music
+---
 
-I wonder how many hours per year I spent listening to music. This seems easy to do.
+## 5. Artist revenue
+
+Contrary to what most people believe, Spotify does not pay artist royalties according to a per-play or per-stream rate. It is more complicated than that. However... what if they did? According to a totally not in-depth and scientific research I did, most artists are paid roughly 0.004 USD per stream. So using a little bit of math, let's see how much money artists have made from my streams alone.
 
 ```{r}
-# make a 'hours_played' column based on the 'ms_played' column
-# 1 millisecond = 2.7777777777778E-7 hours
-songs_listened <- songs_listened %>% mutate(hours_played = ms_played * 2.7777777777778E-7)
+# get the total amount of times I've listened to each artist and multiply by the "payment rate"
+artists_revenue <- songs_listened %>% group_by(artist_name) %>% 
+  summarise(revenue = n() * 0.004)
+
+# print the top 100
+artists_revenue %>% arrange(desc(revenue)) %>% print(n=100)
+```
+
+This result honestly made me laugh. The revenue values are very low. However, I am just one person, right? Given the huge amount of Spotify users, artists make much more money than that. Additionally, they have other sources of income as well.  
+
+---
+
+## 6. Time spent listening to music
+
+For this section, I would like to know how many days per year I spent listening to music. 
+
+```{r}
+# make a 'days_played' column based on the 'ms_played' column
+# 1 millisecond = 1.15741e-8 days
+songs_listened <- songs_listened %>% mutate(days_played = ms_played * 1.15741e-8)
 
 # for every year, sum the hours_played column
-time_spent_w_songs <- songs_listened %>% group_by(year) %>% summarise(hours_listened=sum(hours_played))
+time_spent_w_songs <- songs_listened %>% group_by(year(ts)) %>% summarise(days_listened=sum(days_played))
+
+# rename "year(ts)" column
+colnames(time_spent_w_songs)[1] <- c('year')
 
 # let's plot it!
-ggplot(time_spent_w_songs, aes(y=hours_listened, x=year)) + geom_col() + 
-  xlab('Year') + ylab('Hours') + 
-  ggtitle('Hours spent listening to music')
+ggplot(time_spent_w_songs, aes(x=year, y=days_listened)) + geom_col() + 
+  xlab('Year') + ylab('Number of days') + ggtitle('Days spent listening to music in each year') + theme_minimal()
 ```
 
-So many hours listening to music in 2020 - almost 84 days. I blame COVID-19. 
+So many days listening to music in 2020! I blame COVID-19. 
+
+---
+
+## 7. Time spent streaming certain artists
+
+Now that we know how many hours per year I have spent streaming songs, let's do something similar but now with the artists in my top 10 overall. 
+
+```{r}
+# get the names of the artists in my top 10
+top10artists <- songs_listened %>% group_by(artist_name) %>% 
+  summarise(times_listened = n()) %>% arrange(desc(times_listened)) %>% 
+  slice(1:10) %>% pull(artist_name)
+
+# filter main data frame so it only contains artists in my top 10
+top10artists_streamingtime <- songs_listened %>% filter(artist_name %in% top10artists)
+
+# compute total streaming time
+top10artists_streamingtime <- top10artists_streamingtime %>% group_by(artist_name) %>% 
+  summarise(streaming_time=sum(days_played))
+
+# plot
+ggplot(top10artists_streamingtime, aes(x=reorder(artist_name, -streaming_time), y=streaming_time)) + 
+  geom_col() + coord_flip() + xlab('Artist') + ylab('Number of days') + 
+  ggtitle('Days spent listening to music by artists in my top 10') + theme_minimal()
+```
+
+I must admit, that is a lot of days listening to Lana Del Rey. But the results look so good visualized this way!  
 
 ## RSession
 
