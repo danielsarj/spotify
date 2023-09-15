@@ -29,14 +29,15 @@ library(jsonlite)
 library(tidyverse)
 library(viridis)
 library(treemapify)
+library(ggrepel)
 '%&%' = function(a,b) paste (a,b,sep='')
 
 # list of subfiles to read
-list_of_json_files <- list.files(path = 'MyData/', pattern = 'Streaming_History_Audio')
+list_of_json_files <- list.files(path='MyData/', pattern='Streaming_History_Audio')
 
 # read each file and append to a merged data frame
 for (f in list_of_json_files){
-  tmp <- fromJSON(txt = 'MyData/' %&% f)
+  tmp <- fromJSON(txt='MyData/'%&% f)
   if (exists('full_df')){
     full_df <- rbind(full_df, tmp)
     rm(tmp)
@@ -61,11 +62,11 @@ The original data contains a 'skipped' column with Boolean values, however most 
 
 ```{r}
 # keeps songs that I listened to for less than 10 seconds
-songs_skipped <- full_df %>% filter(ms_played <= 9999)
+songs_skipped <- full_df %>% filter(ms_played<=9999)
 
 # analyze how much I've skipped songs
 songs_skipped_summary <- songs_skipped %>% group_by(track_name, artist_name) %>% 
-  summarise(times_skipped = n()) %>% unique()
+  summarise(times_skipped=n()) %>% unique()
 
 # plot a histogram
 ggplot(songs_skipped_summary, aes(x=times_skipped)) + geom_histogram() + 
@@ -90,11 +91,11 @@ OK, so now that I was able to briefly analyze the data corresponding to my skipp
 
 ```{r}
 # keeps songs that I listened to for at least 10 seconds
-songs_listened <- full_df %>% filter(ms_played >= 10000)
+songs_listened <- full_df %>% filter(ms_played>=10000)
 
 # analyze how much I've streamed songs
 songs_listened_summary <- songs_listened %>% group_by(track_name, artist_name) %>% 
-  summarise(times_streamed = n()) %>% unique()
+  summarise(times_streamed=n()) %>% unique()
 
 # 100 most streamed songs of all time
 songs_listened_summary %>% arrange(desc(times_streamed)) %>% print(n=100)
@@ -107,7 +108,7 @@ Now, let's see the top 10 songs per year.
 ```{r}
 # sum amount of times I've streamed each song per year
 songs_listened_summary <- songs_listened %>% group_by(track_name, artist_name, year(ts)) %>% 
-  summarise(times_streamed = n()) %>% unique()
+  summarise(times_streamed=n()) %>% unique()
 
 # rename "year(ts)" column
 colnames(songs_listened_summary)[3] <- c('year')
@@ -136,7 +137,7 @@ Now, what are the artists I listen to the most? I have my own guesses, but let's
 ```{r}
 # get the total amount of times I've listened to each artist
 artists_frequency <- songs_listened %>% group_by(artist_name) %>% 
-  summarise(times_listened = n())
+  summarise(times_listened=n())
 
 # print the top 100
 artists_frequency %>% arrange(desc(times_listened)) %>% print(n=100)
@@ -149,7 +150,7 @@ Let's do top 10 per year now.
 ```{r}
 # get the total amount of times I've listened to each artist per year
 artists_frequency <- songs_listened %>% group_by(artist_name, year(ts)) %>% 
-  summarise(times_listened = n())
+  summarise(times_listened=n())
 
 # rename "year(ts)" column
 colnames(artists_frequency)[2] <- c('year')
@@ -171,8 +172,7 @@ Just out of curiosity, I would like to know how often the same artists are found
 top10artists_frequency <- top10artists_listened %>% group_by(artist_name) %>% summarise(times_in_top10=n())
 
 # make a treemap
-ggplot(top10artists_frequency, aes(area=times_in_top10, fill=times_in_top10, label=artist_name, subgroup=times_in_top10)) +
-  labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_border(color='black') + geom_treemap_subgroup_text(place='centre', grow=T, alpha=0.6) + theme(legend.position='none') + scale_fill_viridis()
+ggplot(top10artists_frequency, aes(area=times_in_top10, fill=times_in_top10, label=artist_name, subgroup=times_in_top10)) + labs(fill='Artist') + geom_treemap() + geom_treemap_text() + geom_treemap_subgroup_border(color='black') + geom_treemap_subgroup_text(place='centre', grow=T, alpha=0.6) + theme(legend.position='none') + scale_fill_viridis()
 ```
 
 In the treemap above, gray numbers represent how many times the artists in each subgroup (same color) are found in a top 10. Lana Del Rey is the only artist that has appeared in a top 10 every year. No surprises there. 
@@ -186,7 +186,7 @@ Contrary to what most people believe, Spotify does not pay artist royalties acco
 ```{r}
 # get the total amount of times I've listened to each artist and multiply by the "payment rate"
 artists_revenue <- songs_listened %>% group_by(artist_name) %>% 
-  summarise(revenue = n() * 0.004)
+  summarise(revenue=n()*0.004)
 
 # print the top 100
 artists_revenue %>% arrange(desc(revenue)) %>% print(n=100)
@@ -203,9 +203,9 @@ For this section, I would like to know how many days per year I spent listening 
 ```{r}
 # make a 'days_played' column based on the 'ms_played' column
 # 1 millisecond = 1.15741e-8 days
-songs_listened <- songs_listened %>% mutate(days_played = ms_played * 1.15741e-8)
+songs_listened <- songs_listened %>% mutate(days_played=ms_played*1.15741e-8)
 
-# for every year, sum the hours_played column
+# for every year, sum the days_played column
 time_spent_w_songs <- songs_listened %>% group_by(year(ts)) %>% summarise(days_listened=sum(days_played))
 
 # rename "year(ts)" column
@@ -222,12 +222,12 @@ So many days listening to music in 2020! I blame COVID-19.
 
 ## 7. Time spent streaming certain artists
 
-Now that we know how many hours per year I have spent streaming songs, let's do something similar but now with the artists in my top 10 overall. 
+Now that we know how many days per year I have spent streaming songs, let's do something similar but now with the artists in my top 10 overall. 
 
 ```{r}
 # get the names of the artists in my top 10
 top10artists <- songs_listened %>% group_by(artist_name) %>% 
-  summarise(times_listened = n()) %>% arrange(desc(times_listened)) %>% 
+  summarise(times_listened=n()) %>% arrange(desc(times_listened)) %>% 
   slice(1:10) %>% pull(artist_name)
 
 # filter main data frame so it only contains artists in my top 10
@@ -244,6 +244,32 @@ ggplot(top10artists_streamingtime, aes(x=reorder(artist_name, -streaming_time), 
 ```
 
 I must admit, that is a lot of days listening to Lana Del Rey. But the results look so good visualized this way!  
+
+---
+
+## 8. Favorite artists per week
+
+I wanna try and plot what were my top artists per week, across all my years as a Spotify user. What I hope to see is how my most listened to artists per week change according to some life events, such as concerts, plays, new album releases, etc. 
+
+```{r, fig.width=10, fig.height=70}
+# for every year and week, sum the time spent listening to every artist
+topartists_week <- songs_listened %>% group_by(year(ts), week(ts), artist_name) %>% summarise(time=sum(ms_played))
+
+# rename lubridate-made columns
+colnames(topartists_week)[1:2] <- c('year', 'week')
+
+# for every year and week, select the top 3 artists and add a new column with their respective position in the top 3
+topartists_week <- topartists_week %>% group_by(year, week) %>% slice_max(time, n=3) %>% mutate(position=c(1:3))
+
+# plot it!
+ggplot(topartists_week, aes(x=week, y=position, color=artist_name, label=artist_name)) + geom_point(show.legend=F) + geom_line(show.legend=F) + geom_label_repel(show.legend=F) + facet_wrap(~year, ncol=1) + scale_y_continuous(breaks=c(1,2,3)) + scale_x_reverse(breaks=c(1,10,20,30,40,50)) + coord_flip() + xlab('Week') + ylab('Rank') + ggtitle('Top 3 artists per week in every year') + theme_minimal()
+```
+
+Ok... this isn't my most beautiful work. The plot is too busy, but I don't think I could improve it further. Anyway, regardless of how busy the figure is, it's still possible to draw some information from it. For instance, we can see the influence in my top artists of the week in weeks in which I saw some musicals in the theater (such as SIX on May 10th, 2022), an artists released a new album (for example, Dua Lipa's Future Nostalgia on March 27th, 2020 and Beyoncé's Renaissance on July 29th, 2022), or I first discovered an artist for the first time and streamed them a bunch (such as Weathers on September 6th-12th).
+
+Overall, the plot tells an interesting story. But to be fair, this plot is probably only that interesting to me. 
+
+---
 
 ## RSession
 
