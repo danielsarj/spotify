@@ -45,13 +45,13 @@ for (f in list_of_json_files){
 }
 
 # only keep columns I want
-full_df <- full_df %>% select(master_metadata_album_artist_name, master_metadata_track_name, ts, ms_played) %>% drop_na()
+full_df <- full_df %>% select(master_metadata_album_artist_name, master_metadata_album_album_name, master_metadata_track_name, ts, ms_played) %>% drop_na()
 
 # make sure the timestamp column is in the correct format
 full_df$ts <- as_datetime(full_df$ts)
 
 # renaming first two columns (names are too big!)
-colnames(full_df)[1:2] <- c('artist_name','track_name')
+colnames(full_df)[1:3] <- c('artist_name','album_name','track_name')
 ```
 
 ---
@@ -179,7 +179,24 @@ In the treemap above, gray numbers represent how many times the artists in each 
 
 ---
 
-## 5. Artist revenue
+## 5. Favorite albums
+
+Now, let's see what are my most streamed albums. To do this, I will group by both album name and artist name, as there could be albums released by different authors that might have the same name. 
+
+```{r}
+# get the total amount of times I've listened to each album
+album_frequency <- songs_listened %>% group_by(album_name, artist_name) %>% 
+  summarise(times_listened=n())
+
+# print the top 100
+album_frequency %>% arrange(desc(times_listened)) %>% print(n=100)
+```
+
+To be honest, I did not expect to see some albums on my top 10 so high on this list!  
+
+---
+
+## 6. Artist revenue
 
 Contrary to what most people believe, Spotify does not pay artist royalties according to a per-play or per-stream rate. It is more complicated than that. However... what if they did? According to a totally not in-depth and scientific research I did, most artists are paid roughly 0.004 USD per stream. So using a little bit of math, let's see how much money artists have made from my streams alone.
 
@@ -196,7 +213,7 @@ This result honestly made me laugh. The revenue values are very low. However, I 
 
 ---
 
-## 6. Time spent listening to music
+## 7. Time spent listening to music
 
 For this section, I would like to know how many days per year I spent listening to music. 
 
@@ -220,7 +237,7 @@ So many days listening to music in 2020! I blame COVID-19.
 
 ---
 
-## 7. Time spent streaming certain artists
+## 8. Time spent streaming certain artists
 
 Now that we know how many days per year I have spent streaming songs, let's do something similar but now with the artists in my top 10 overall. 
 
@@ -247,7 +264,7 @@ I must admit, that is a lot of days listening to Lana Del Rey. But the results l
 
 ---
 
-## 8. Favorite artists per week
+## 9. Favorite artists per week
 
 I wanna try and plot what were my top artists per week, across all my years as a Spotify user. What I hope to see is how my most listened to artists per week change according to some life events, such as concerts, plays, new album releases, etc. 
 
@@ -265,7 +282,7 @@ topartists_week <- topartists_week %>% group_by(year, week) %>% slice_max(time, 
 ggplot(topartists_week, aes(x=week, y=position, color=artist_name, label=artist_name)) + geom_point(show.legend=F) + geom_line(show.legend=F) + geom_label_repel(show.legend=F) + facet_wrap(~year, ncol=1) + scale_y_continuous(breaks=c(1,2,3)) + scale_x_reverse(breaks=c(1,10,20,30,40,50)) + coord_flip() + xlab('Week') + ylab('Rank') + ggtitle('Top 3 artists per week in every year') + theme_minimal()
 ```
 
-Ok... this isn't my most beautiful work. The plot is too busy, but I don't think I could improve it further. Anyway, regardless of how busy the figure is, it's still possible to draw some information from it. For instance, we can see the influence in my top artists of the week in weeks in which I saw some musicals in the theater (such as SIX on May 10th, 2022), an artists released a new album (for example, Dua Lipa's Future Nostalgia on March 27th, 2020 and Beyoncé's Renaissance on July 29th, 2022), or I first discovered an artist for the first time and streamed them a bunch (such as Weathers on September 6th-12th).
+Ok... this isn't my most beautiful work. The plot is too busy, but I don't think I could improve it further. Anyway, regardless of how busy the figure is, it's still possible to draw some information from it. For instance, we can see the influence in my top artists of the week in weeks in which I saw some musicals in the theater (such as SIX on May 10th, 2022), an artist released a new album (for example, Dua Lipa's Future Nostalgia on March 27th, 2020 and Beyoncé's Renaissance on July 29th, 2022), or I first discovered an artist for the first time and streamed them a bunch (such as Weathers on September 6th-12th).
 
 Overall, the plot tells an interesting story. But to be fair, this plot is probably only that interesting to me. 
 
