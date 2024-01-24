@@ -1,7 +1,7 @@
 ---
 title: "Analyzing Spotify Extended Streaming History"
 author: "Daniel Araujo"
-date: "Date of data request: August 8th, 2023"
+date: "Date of data request: January 23rd, 2024"
 output: 
   html_document:
     toc: true
@@ -33,11 +33,11 @@ library(ggrepel)
 '%&%' = function(a,b) paste (a,b,sep='')
 
 # list of subfiles to read
-list_of_json_files <- list.files(path='MyData/', pattern='Streaming_History_Audio')
+list_of_json_files <- list.files(path='SpotifyAccountData/', pattern='Streaming_History_Audio')
 
 # read each file and append to a merged data frame
 for (f in list_of_json_files){
-  tmp <- fromJSON(txt='MyData/'%&% f)
+  tmp <- fromJSON(readLines('SpotifyAccountData/'%&% f))
   if (exists('full_df')){
     full_df <- rbind(full_df, tmp)
     rm(tmp)
